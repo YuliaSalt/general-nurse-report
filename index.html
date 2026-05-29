@@ -326,7 +326,7 @@ main { max-width:1440px; margin:0 auto; padding:20px 16px 0; }
 }
 .fld-row label { font-size:12px; font-weight:600; color:var(--text-m); white-space:nowrap; flex-shrink:0; }
 .fld-row input {
-  background:transparent; border:none; outline:none; flex:1;
+  background:transparent; border:none; outline:none; flex:1; min-width:0;
   font-family:'Rubik',sans-serif; font-size:16px; color:var(--text-d); direction:rtl;
   min-height:28px;
 }
@@ -334,11 +334,12 @@ main { max-width:1440px; margin:0 auto; padding:20px 16px 0; }
 
 /* ─── Textarea ──────────────────────────────────────────── */
 .ta {
-  width:100%; min-height:70px;
+  width:100%; max-width:100%; min-height:70px;
   border:1.5px solid var(--border); border-radius:9px; padding:9px 11px;
   font-family:'Rubik',sans-serif; font-size:16px; color:var(--text-m);
   resize:vertical; background:#f8fbff; outline:none; direction:rtl;
   transition:border-color .2s, box-shadow .2s;
+  white-space:pre-wrap; word-wrap:break-word; overflow-wrap:break-word; word-break:break-word;
 }
 .ta:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(37,99,235,.08); background:#fff; }
 
@@ -364,6 +365,14 @@ footer {
 .wa-btn:active { transform:translateY(6px); box-shadow:0 0 0 #065f46, 0 2px 8px rgba(16,185,129,.25); }
 .wa-btn i { font-size:22px; }
 .footer-note { font-size:11px; color:var(--text-l); text-align:center; max-width:320px; line-height:1.4; }
+
+/* ── Thank-you note ─────────────────────────────────────── */
+.thanks-note {
+  font-family:'Rubik',sans-serif; text-align:center;
+  color:var(--blue); font-size:15px; font-weight:600;
+  letter-spacing:.2px; line-height:1.5;
+  padding:6px 16px 22px;
+}
 
 /* ════ IMAGE PREVIEW OVERLAY ═════════════════════════════ */
 #imgPrevOv {
@@ -650,6 +659,8 @@ body.snap-mode .cnt-btn         { display:none !important; }
     </div>
 
   </div><!-- /ops-grid -->
+
+  <div class="thanks-note">תודה רבה וברכה למשמרת הבאה 🌙</div>
 </main>
 </div><!-- /reportWrap -->
 
@@ -1098,19 +1109,78 @@ function buildReport() {
   var LH = Math.round(38 * S), SH = Math.round(40 * S), HDR = Math.round(85 * S), FOOT = Math.round(32 * S), IPV = Math.round(10 * S);
   var FS_TITLE = Math.round(26 * S), FS_DATE = Math.round(20 * S), FS_SEC = Math.round(22 * S), FS_LABEL = Math.round(26 * S), FS_LINE = Math.round(22 * S);
 
+  var THX = LH + 16; // thank-you line block height
+
+  var cv = document.createElement('canvas');
+  cv.width  = W;
+  var ctx = cv.getContext('2d');
+  ctx.direction = 'rtl';
+  ctx.textBaseline = 'middle';
+
+  // ── word-wrap helper: break a long line into lines that fit maxW ──
+  var contentMaxW = W - PH * 2 - 22;
+  // break a single token that is itself wider than maxW, char-by-char
+  function breakLongWord(word, maxW) {
+    var pieces = [], cur = '';
+    for (var i = 0; i < word.length; i++) {
+      var ch = word[i];
+      if (cur && ctx.measureText(cur + ch).width > maxW) {
+        pieces.push(cur); cur = ch;
+      } else {
+        cur += ch;
+      }
+    }
+    if (cur) pieces.push(cur);
+    return pieces.length ? pieces : [word];
+  }
+  function wrapText(text, maxW) {
+    var lines = [];
+    // preserve user-entered line breaks, then word-wrap each segment
+    String(text).split(/\r?\n/).forEach(function(segment) {
+      var words = segment.split(/\s+/);
+      var cur = '';
+      for (var i = 0; i < words.length; i++) {
+        var w = words[i];
+        if (w === '') continue;
+        // a single word wider than the line must be split on characters
+        if (ctx.measureText(w).width > maxW) {
+          if (cur) { lines.push(cur); cur = ''; }
+          var pieces = breakLongWord(w, maxW);
+          for (var p = 0; p < pieces.length - 1; p++) lines.push(pieces[p]);
+          cur = pieces[pieces.length - 1];
+          continue;
+        }
+        var test = cur ? cur + ' ' + w : w;
+        if (cur && ctx.measureText(test).width > maxW) {
+          lines.push(cur); cur = w;
+        } else {
+          cur = test;
+        }
+      }
+      lines.push(cur);
+    });
+    return lines.length ? lines : [''];
+  }
+
+  // pre-compute wrapped content lines per row (measure with the line font)
+  ctx.font = FS_LINE + 'px ' + F;
+  rows.forEach(function(r) {
+    if (r.t !== 'ITEM') return;
+    var wl = [];
+    r.lines.forEach(function(line) { wl = wl.concat(wrapText(line, contentMaxW)); });
+    r.wrapped = wl;
+  });
+
   function calcH2() {
-    var h = HDR + FOOT + 12;
+    var h = HDR + FOOT + 12 + THX;
     rows.forEach(function(r) {
       if (r.t === 'SEC') { h += SH + 8; return; }
-      h += IPV * 2 + LH + r.lines.length * LH;
+      h += IPV * 2 + LH + r.wrapped.length * LH;
     });
     return h;
   }
 
-  var cv = document.createElement('canvas');
-  cv.width  = W;
-  cv.height = calcH2();
-  var ctx = cv.getContext('2d');
+  cv.height = calcH2(); // resizing the canvas resets ctx state below
   ctx.direction = 'rtl';
   ctx.textBaseline = 'middle';
 
@@ -1156,7 +1226,7 @@ function buildReport() {
       return;
     }
 
-    var rowH = IPV * 2 + LH + r.lines.length * LH;
+    var rowH = IPV * 2 + LH + r.wrapped.length * LH;
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, y, W, rowH);
 
@@ -1168,7 +1238,7 @@ function buildReport() {
 
     ctx.font = FS_LINE + 'px ' + F;
     ctx.fillStyle = '#1f2937';
-    r.lines.forEach(function(line, li) {
+    r.wrapped.forEach(function(line, li) {
       ctx.fillText(line, W - PH - 22, y + IPV + LH + li * LH + LH / 2);
     });
 
@@ -1180,6 +1250,14 @@ function buildReport() {
 
     y += rowH;
   });
+
+  // thank-you line (last line before footer)
+  y += 8;
+  ctx.fillStyle = '#1d4ed8';
+  ctx.font = 'bold ' + FS_LINE + 'px ' + F;
+  ctx.textAlign = 'center';
+  ctx.fillText('תודה רבה וברכה למשמרת הבאה 🌙', W / 2, y + LH / 2);
+  y += LH + 8;
 
   // footer
   y += 4;
