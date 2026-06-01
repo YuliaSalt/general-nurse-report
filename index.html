@@ -902,7 +902,7 @@ function sendWA() {
   /* Primary path — native share sheet (all modern phones incl. iPhone).
      Must be invoked synchronously here to preserve the user gesture. */
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file], title: 'דוח סיכום משמרת', text: 'דוח סיכום משמרת — אחות כללית' })
+    navigator.share({ files: [file] })
       .catch(function (e) {
         if (e && e.name !== 'AbortError') toast('שגיאת שיתוף — נסה שנית', 7000);
       });
