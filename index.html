@@ -449,23 +449,6 @@ body.snap-mode .cnt-btn         { display:none !important; }
 <div class="snap-ov" id="snapOv" onclick="this.classList.remove('show')"><div class="spinner"></div><p>מכין דו"ח...</p></div>
 <div class="toast" id="toast"></div>
 
-<div id="imgPrevOv" style="display:none">
-  <div class="img-prev-inner">
-    <img id="prevImg" alt="תצוגה מקדימה" style="touch-action:auto">
-    <p id="iosHint" style="display:none;color:#fff;font-size:13px;text-align:center;padding:0 12px;line-height:1.6">
-      לחץ לחיצה ארוכה על התמונה ← <strong>שמור תמונה</strong><br>
-      לאחר מכן פתח WhatsApp ושלח מהגלריה
-    </p>
-    <div class="img-prev-btns">
-      <button class="wa-btn" id="shareBtn" onclick="doShare()">
-        <i class="fa-brands fa-whatsapp"></i>
-        שלח לוואטסאפ
-      </button>
-      <button class="prev-close-btn" onclick="closePrev()">סגור</button>
-    </div>
-  </div>
-</div>
-
 <div id="reportWrap">
 <!-- ════ HEADER ════════════════════════════════════════════ -->
 <header id="pageHdr">
@@ -887,99 +870,87 @@ function toast(msg, ms=6000) {
   setTimeout(()=>t.classList.remove('show'), ms);
 }
 /* ג•ג• WhatsApp send ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג• */
-async function sendWA() {
-  const ov = document.getElementById('snapOv');
-  ov.classList.add('show');
-  if (document.fonts && document.fonts.ready) await document.fonts.ready;
-  await new Promise(r => setTimeout(r, 80));
+/* convert a canvas data-URL to a File synchronously (no async toBlob,
+   so the call stack from the click stays unbroken → iOS keeps user-activation) */
+function dataURLtoFile(dataurl, filename) {
+  var arr  = dataurl.split(',');
+  var mime = arr[0].match(/:(.*?);/)[1];
+  var bstr = atob(arr[1]);
+  var n    = bstr.length;
+  var u8   = new Uint8Array(n);
+  while (n--) u8[n] = bstr.charCodeAt(n);
+  return new File([u8], filename, { type: mime });
+}
+
+/* Build the report and share it IMMEDIATELY on click — no preview step.
+   Everything up to navigator.share() runs synchronously so iOS/Safari
+   still treats it as triggered by the user gesture (otherwise it blocks). */
+function sendWA() {
+  var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  var mime  = isIOS ? 'image/jpeg' : 'image/png';
+  var ext   = isIOS ? 'jpg' : 'png';
+  var file, dataUrl;
   try {
-    const canvas = buildReport();
-    var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    var mime = isIOS ? 'image/jpeg' : 'image/png';
-    const blob = await Promise.race([
-      new Promise(res => canvas.toBlob(res, mime, 0.92)),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('זמן קצוב — נסה שנית')), 15000))
-    ]);
-    if (!blob) throw new Error('לא ניתן ליצור תמונה — נסה שנית');
-    window._rpBlob = blob;
-    window._rpMime = mime;
-    if (isIOS) {
-      /* iOS: convert to data-URL so long-press → "Save Image" works in Safari */
-      var fr = new FileReader();
-      fr.onloadend = function() {
-        ov.classList.remove('show');
-        window._rpUrl = fr.result;
-        document.getElementById('prevImg').src = fr.result;
-        /* show iOS long-press hint if file-sharing API unavailable */
-        var testFile = new File([blob], 't', {type: mime});
-        var canShr = navigator.canShare && navigator.canShare({files:[testFile]});
-        document.getElementById('iosHint').style.display  = canShr ? 'none'  : 'block';
-        var btn = document.getElementById('shareBtn');
-        if (btn) btn.innerHTML = canShr
-          ? '<i class="fa-brands fa-whatsapp"></i> שלח לוואטסאפ'
-          : '<i class="fa-solid fa-image"></i> שמור תמונה לגלריה';
-        document.getElementById('imgPrevOv').style.display = 'flex';
-      };
-      fr.onerror = function() {
-        ov.classList.remove('show');
-        toast('שגיאה ביצירת תמונה — נסה שנית', 7000);
-      };
-      fr.readAsDataURL(blob);
-    } else {
-      ov.classList.remove('show');
-      if (window._rpUrl) URL.revokeObjectURL(window._rpUrl);
-      window._rpUrl = URL.createObjectURL(blob);
-      document.getElementById('prevImg').src = window._rpUrl;
-      document.getElementById('imgPrevOv').style.display = 'flex';
-    }
-  } catch(err) {
-    ov.classList.remove('show');
-    toast('שגיאה: ' + (err.message || 'נסה שנית'), 7000);
-  }
-}
-function closePrev() {
-  document.getElementById('imgPrevOv').style.display = 'none';
-}
-async function doShare() {
-  closePrev();
-  const blob = window._rpBlob;
-  if (!blob) return;
-  var mime = window._rpMime || 'image/png';
-  var ext  = mime === 'image/jpeg' ? 'jpg' : 'png';
-  const file = new File([blob], 'דוח-משמרת.' + ext, { type: mime });
-  if (navigator.canShare && navigator.canShare({ files:[file] })) {
-    try { await navigator.share({ files:[file], title:'דוח סיכום משמרת' }); }
-    catch(e) { if (e && e.name !== 'AbortError') toast('שגיאת שיתוף — נסה שנית'); }
+    var canvas = buildReport();              // synchronous draw
+    dataUrl    = canvas.toDataURL(mime, 0.92); // synchronous encode
+    file       = dataURLtoFile(dataUrl, 'דוח-משמרת.' + ext);
+  } catch (err) {
+    toast('שגיאה ביצירת תמונה — נסה שנית', 7000);
     return;
   }
-  // iOS fallback: open image in new tab so user can long-press → Save Image
-  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+
+  /* Primary path — native share sheet (all modern phones incl. iPhone).
+     Must be invoked synchronously here to preserve the user gesture. */
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: 'דוח סיכום משמרת', text: 'דוח סיכום משמרת — אחות כללית' })
+      .catch(function (e) {
+        if (e && e.name !== 'AbortError') toast('שגיאת שיתוף — נסה שנית', 7000);
+      });
+    return;
+  }
+
+  /* iPhone without file-share (very old iOS): open image so it can be
+     long-pressed → "Save Image", then shared from Photos. */
+  if (isIOS) {
     var w = window.open('', '_blank');
     if (w) {
-      w.document.write('<html><body style="margin:0;background:#000"><img src="' +
-        window._rpUrl + '" style="max-width:100%;display:block"></body></html>');
+      w.document.write('<html><head><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '</head><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center">' +
+        '<img src="' + dataUrl + '" style="max-width:100%;height:auto;display:block"></body></html>');
       w.document.close();
+      toast('לחץ לחיצה ארוכה על התמונה ← שמור תמונה, ואז שתף לוואטסאפ', 8000);
     } else {
-      /* popup blocked — fall back to showing overlay with hint */
-      document.getElementById('prevImg').src = window._rpUrl;
-      document.getElementById('iosHint').style.display = 'block';
-      document.getElementById('imgPrevOv').style.display = 'flex';
+      toast('אפשר חלונות קופצים כדי לשמור ולשתף את התמונה', 8000);
     }
     return;
   }
-  try {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-    window.open('https://web.whatsapp.com/', '_blank');
-    toast('✓ הועתק! פתח WhatsApp ולחץ Ctrl+V');
+
+  /* Desktop — copy PNG to clipboard then open WhatsApp Web; else download. */
+  if (navigator.clipboard && window.ClipboardItem && mime === 'image/png') {
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': file })])
+      .then(function () {
+        window.open('https://web.whatsapp.com/', '_blank');
+        toast('✓ הועתק! פתח WhatsApp ולחץ Ctrl+V', 7000);
+      })
+      .catch(function () { downloadReport(file, ext); });
     return;
-  } catch(_) {}
-  const a = document.createElement('a');
-  const now = new Date();
-  a.download = `דוח-${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${now.getFullYear()}.${ext}`;
-  a.href = URL.createObjectURL(blob);
+  }
+  downloadReport(file, ext);
+}
+
+function downloadReport(file, ext) {
+  var now = new Date();
+  var a = document.createElement('a');
+  a.download = 'דוח-' + String(now.getDate()).padStart(2, '0') + '-' +
+               String(now.getMonth() + 1).padStart(2, '0') + '-' +
+               now.getFullYear() + '.' + ext;
+  a.href = URL.createObjectURL(file);
   a.click();
-  setTimeout(() => window.open('https://web.whatsapp.com/', '_blank'), 600);
-  toast('הדוח הורד — פתח WhatsApp ושתף');
+  setTimeout(function () {
+    URL.revokeObjectURL(a.href);
+    window.open('https://web.whatsapp.com/', '_blank');
+  }, 600);
+  toast('הדוח הורד — פתח WhatsApp ושתף', 7000);
 }
 
 /* ג•ג• Canvas report builder ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג•ג• */
