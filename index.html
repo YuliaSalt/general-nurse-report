@@ -1079,6 +1079,7 @@ function buildReport() {
   var PH = Math.round(22 * S);
   var LH = Math.round(38 * S), SH = Math.round(40 * S), HDR = Math.round(85 * S), FOOT = Math.round(32 * S), IPV = Math.round(10 * S);
   var FS_TITLE = Math.round(26 * S), FS_DATE = Math.round(20 * S), FS_SEC = Math.round(22 * S), FS_LABEL = Math.round(26 * S), FS_LINE = Math.round(22 * S);
+  var FS_FREE = Math.round(30 * S); // free-text content lines (larger than FS_LINE for readability)
 
   var THX = LH + 16; // thank-you line block height
 
@@ -1133,8 +1134,8 @@ function buildReport() {
     return lines.length ? lines : [''];
   }
 
-  // pre-compute wrapped content lines per row (measure with the line font)
-  ctx.font = FS_LINE + 'px ' + F;
+  // pre-compute wrapped content lines per row (measure with the free-text font)
+  ctx.font = FS_FREE + 'px ' + F;
   rows.forEach(function(r) {
     if (r.t !== 'ITEM') return;
     var wl = [];
@@ -1207,7 +1208,7 @@ function buildReport() {
     var full = r.label + (r.status ? ':  ' + r.status : ':');
     ctx.fillText(full, W - PH, y + IPV + LH / 2);
 
-    ctx.font = FS_LINE + 'px ' + F;
+    ctx.font = FS_FREE + 'px ' + F;
     ctx.fillStyle = '#1f2937';
     r.wrapped.forEach(function(line, li) {
       ctx.fillText(line, W - PH - 22, y + IPV + LH + li * LH + LH / 2);
